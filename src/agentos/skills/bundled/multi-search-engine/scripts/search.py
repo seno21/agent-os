@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+import urllib.parse
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -14,9 +15,7 @@ from pathlib import Path
 import httpx
 from bs4 import BeautifulSoup
 
-USER_AGENT = (
-    "Mozilla/5.0 (compatible; AgentOS-multi-search-engine/0.1)"
-)
+USER_AGENT = "Mozilla/5.0 (compatible; AgentOS-multi-search-engine/0.1)"
 TIMEOUT_S = 8.0
 
 
@@ -49,20 +48,27 @@ def _ddg_search(query: str, limit: int) -> list[Result]:
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         results: list[Result] = []
-        for idx, item in enumerate(soup.select("div.result")[:limit], start=1):
+        for item in soup.select("div.result"):
             title_el = item.select_one("a.result__a")
             snippet_el = item.select_one("a.result__snippet")
             if title_el is None:
                 continue
+            href = title_el.get("href", "")
+            if not isinstance(href, str) or not href or "y.js" in href:
+                continue
+            if "uddg=" in href:
+                href = urllib.parse.unquote(href.split("uddg=")[1].split("&")[0])
             results.append(
                 Result(
                     engine="duckduckgo",
                     title=title_el.get_text(strip=True),
-                    url=title_el.get("href", ""),
+                    url=href,
                     snippet=snippet_el.get_text(strip=True) if snippet_el is not None else "",
-                    rank=idx,
+                    rank=len(results) + 1,
                 )
             )
+            if len(results) >= limit:
+                break
         return results
 
 
@@ -76,8 +82,7 @@ def _brave_search(query: str, limit: int) -> list[Result]:
     effective_count = min(max(limit, 1), _BRAVE_MAX_COUNT)
     if limit > _BRAVE_MAX_COUNT:
         print(
-            f"[multi-search-engine] brave count clamped {limit}→{_BRAVE_MAX_COUNT} "
-            f"(API hard-cap)",
+            f"[multi-search-engine] brave count clamped {limit}→{_BRAVE_MAX_COUNT} (API hard-cap)",
             file=sys.stderr,
         )
     with _client() as client:

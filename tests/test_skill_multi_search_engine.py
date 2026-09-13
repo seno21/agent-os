@@ -178,3 +178,68 @@ def test_search_creates_parent_directory(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setattr(sys, "argv", ["search.py", "--query", "test", "--out", str(out)])
     assert search.main() == 0
     assert out.is_file()
+
+
+def test_ddg_search_unquotes_redirect_urls_and_skips_ads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DuckDuckGo scraper must unquote uddg= redirect URLs, skip ads, and rank sequentially."""
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import search  # type: ignore[import-not-found]
+    finally:
+        sys.path.pop(0)
+
+    html_content = (
+        "<html><body>"
+        '<div class="result">'
+        '<a class="result__a" href="https://duckduckgo.com/y.js?ad_id=123">Sponsored Ad</a>'
+        '<a class="result__snippet">Ad snippet</a>'
+        "</div>"
+        '<div class="result">'
+        '<a class="result__a" href="//duckduckgo.com/l/?uddg='
+        'https%3A%2F%2Fexample.com%2Fdocs%3Fid%3D10&rut=abc">Target One</a>'
+        '<a class="result__snippet">Snippet 1</a>'
+        "</div>"
+        '<div class="result">'
+        '<a class="result__a" href="/l/?uddg='
+        'https%3A%2F%2Fdocs.example.org%2Fguide&rut=def">Target Two</a>'
+        '<a class="result__snippet">Snippet 2</a>'
+        "</div>"
+        '<div class="result">'
+        '<a class="result__a" href="https://direct.example.net/info">Target Three</a>'
+        '<a class="result__snippet">Snippet 3</a>'
+        "</div>"
+        "</body></html>"
+    )
+
+    class _Response:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _Client:
+        def __enter__(self) -> _Client:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def post(self, url: str, *, data: dict[str, str]) -> _Response:
+            return _Response(html_content)
+
+    monkeypatch.setattr(search, "_client", lambda: _Client())
+
+    results = search._ddg_search("query", limit=2)
+    assert len(results) == 2
+    assert results[0].title == "Target One"
+    assert results[0].url == "https://example.com/docs?id=10"
+    assert results[0].snippet == "Snippet 1"
+    assert results[0].rank == 1
+
+    assert results[1].title == "Target Two"
+    assert results[1].url == "https://docs.example.org/guide"
+    assert results[1].snippet == "Snippet 2"
+    assert results[1].rank == 2
