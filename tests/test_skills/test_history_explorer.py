@@ -14,15 +14,25 @@ EXPLORE = _SKILL_DIR / "scripts" / "explore.py"
 
 def _make_log_line(skills: list[str], turn_id: str = "t1") -> str:
     from datetime import UTC, datetime
-    return json.dumps({
-        "turn_id": turn_id, "session_key": "s1", "prompt_hash": "a" * 16,
-        "system_prompt_hash": "b" * 16, "tool_list_hash": "c" * 16,
-        "tool_choice": "auto", "tokens_input": 1, "tokens_output": 2,
-        "model": "x", "provider": "y", "latency_ms": 3,
-        "ts": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "schema_version": 10,
-        "skills_invoked": skills,
-    })
+
+    return json.dumps(
+        {
+            "turn_id": turn_id,
+            "session_key": "s1",
+            "prompt_hash": "a" * 16,
+            "system_prompt_hash": "b" * 16,
+            "tool_list_hash": "c" * 16,
+            "tool_choice": "auto",
+            "tokens_input": 1,
+            "tokens_output": 2,
+            "model": "x",
+            "provider": "y",
+            "latency_ms": 3,
+            "ts": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "schema_version": 10,
+            "skills_invoked": skills,
+        }
+    )
 
 
 def _run_explore(log_dir: Path, query: str, **kwargs) -> dict:
@@ -35,11 +45,17 @@ def _run_explore(log_dir: Path, query: str, **kwargs) -> dict:
 
 def test_co_occurrence_top_k(tmp_path: Path) -> None:
     log = tmp_path / "decisions-20260520.jsonl"
-    log.write_text("\n".join([
-        _make_log_line(["pdf-toolkit", "summarize", "memory"], "t1"),
-        _make_log_line(["pdf-toolkit", "summarize", "memory"], "t2"),
-        _make_log_line(["weather", "summarize"], "t3"),
-    ]) + "\n", encoding="utf-8")
+    log.write_text(
+        "\n".join(
+            [
+                _make_log_line(["pdf-toolkit", "summarize", "memory"], "t1"),
+                _make_log_line(["pdf-toolkit", "summarize", "memory"], "t2"),
+                _make_log_line(["weather", "summarize"], "t3"),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     out = _run_explore(tmp_path, "process PDFs", window_days=30, top_k=10)
     assert "co_occurrences" in out
     top = out["co_occurrences"][0]
@@ -55,14 +71,24 @@ def test_empty_log_returns_placeholder(tmp_path: Path) -> None:
 
 def _make_log_line_with_ts(skills: list[str], ts: str, turn_id: str = "t_ts") -> str:
     """Like _make_log_line but with an explicit timestamp string."""
-    return json.dumps({
-        "turn_id": turn_id, "session_key": "s1", "prompt_hash": "a" * 16,
-        "system_prompt_hash": "b" * 16, "tool_list_hash": "c" * 16,
-        "tool_choice": "auto", "tokens_input": 1, "tokens_output": 2,
-        "model": "x", "provider": "y", "latency_ms": 3,
-        "ts": ts, "schema_version": 10,
-        "skills_invoked": skills,
-    })
+    return json.dumps(
+        {
+            "turn_id": turn_id,
+            "session_key": "s1",
+            "prompt_hash": "a" * 16,
+            "system_prompt_hash": "b" * 16,
+            "tool_list_hash": "c" * 16,
+            "tool_choice": "auto",
+            "tokens_input": 1,
+            "tokens_output": 2,
+            "model": "x",
+            "provider": "y",
+            "latency_ms": 3,
+            "ts": ts,
+            "schema_version": 10,
+            "skills_invoked": skills,
+        }
+    )
 
 
 def test_window_excludes_old_entries(tmp_path: Path) -> None:
@@ -74,6 +100,21 @@ def test_window_excludes_old_entries(tmp_path: Path) -> None:
     )
     out = _run_explore(tmp_path, "anything", window_days=30)
     assert out["co_occurrences"] == []
+
+
+def test_co_occurrence_tolerates_naive_timestamps(tmp_path: Path) -> None:
+    """Entries with naive ISO timestamps (no Z or offset) are handled cleanly."""
+    from datetime import UTC, datetime
+
+    naive_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    log = tmp_path / "decisions-20260520.jsonl"
+    log.write_text(
+        _make_log_line_with_ts(["docx", "xlsx"], naive_ts, "t_naive") + "\n",
+        encoding="utf-8",
+    )
+    out = _run_explore(tmp_path, "process files", window_days=30)
+    assert len(out["co_occurrences"]) == 1
+    assert out["co_occurrences"][0]["skills"] == ["docx", "xlsx"]
 
 
 def test_co_occurrence_uses_redacted_intent_summary(tmp_path: Path) -> None:
@@ -156,4 +197,3 @@ def test_resolve_log_dir_respects_env_overrides(tmp_path: Path, monkeypatch) -> 
     assert not str(default).startswith("~"), f"default tilde not expanded: {default}"
     assert default.name == "logs"
     assert default.parent.name == ".agentos"
-
