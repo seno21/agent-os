@@ -22,10 +22,8 @@ def test_gemini_input_token_count_message_is_context_overflow() -> None:
             provider_name="gemini",
             status_code=400,
             message=(
-                "the input token count (12345) exceeds the maximum "
-                "number of tokens allowed (8192)."
+                "the input token count (12345) exceeds the maximum number of tokens allowed (8192)."
             ),
-
         )
         is ProviderFailureKind.CONTEXT_OVERFLOW
     )
@@ -50,10 +48,8 @@ def test_gemini_input_token_count_message_is_context_overflow_different_counts()
             provider_name="gemini",
             status_code=400,
             message=(
-                "the input token count (512) exceeds the maximum "
-                "number of tokens allowed (4096)."
+                "the input token count (512) exceeds the maximum number of tokens allowed (4096)."
             ),
-
         )
         is ProviderFailureKind.CONTEXT_OVERFLOW
     )
@@ -113,8 +109,7 @@ def test_openai_insufficient_quota_429_is_credits() -> None:
             status_code=429,
             raw_code="insufficient_quota",
             message=(
-                "You exceeded your current quota, please check your plan "
-                "and billing details."
+                "You exceeded your current quota, please check your plan and billing details."
             ),
         )
         is ProviderFailureKind.INSUFFICIENT_CREDITS
@@ -183,3 +178,79 @@ def test_deepseek_insufficient_quota_is_credits() -> None:
         is ProviderFailureKind.INSUFFICIENT_CREDITS
     )
 
+
+# ── MODEL_NOT_FOUND regressions ──────────────────────────────────────
+
+
+def test_openai_404_model_not_found_is_model_not_found() -> None:
+    """OpenAI returns HTTP 404 with raw_code model_not_found or does not exist."""
+    assert (
+        classify_provider_error(
+            provider_name="openai",
+            status_code=404,
+            raw_code="model_not_found",
+            message="The model 'gpt-5-turbo' does not exist or you do not have access to it.",
+        )
+        is ProviderFailureKind.MODEL_NOT_FOUND
+    )
+
+
+def test_openai_model_does_not_exist_without_status_code_is_model_not_found() -> None:
+    """OpenAI does-not-exist error message without status code should match."""
+    assert (
+        classify_provider_error(
+            provider_name="openai",
+            status_code=None,
+            message="The model 'gpt-4o-custom' does not exist.",
+        )
+        is ProviderFailureKind.MODEL_NOT_FOUND
+    )
+
+
+def test_anthropic_404_not_found_error_is_model_not_found() -> None:
+    """Anthropic not_found_error with HTTP 404 was previously UNKNOWN."""
+    assert (
+        classify_provider_error(
+            provider_name="anthropic",
+            status_code=404,
+            raw_code="not_found_error",
+            message="model: claude-3-5-sonnet-20240620-nonexistent not found",
+        )
+        is ProviderFailureKind.MODEL_NOT_FOUND
+    )
+
+
+def test_openrouter_404_no_endpoints_is_model_not_found() -> None:
+    """OpenRouter 404 when no provider endpoints exist for the requested model."""
+    assert (
+        classify_provider_error(
+            provider_name="openrouter",
+            status_code=404,
+            message="No endpoints found for model 'meta-llama/llama-3-unknown'",
+        )
+        is ProviderFailureKind.MODEL_NOT_FOUND
+    )
+
+
+def test_gemini_404_is_model_not_found() -> None:
+    """Gemini 404 for non-existent model ID should be classified as MODEL_NOT_FOUND."""
+    assert (
+        classify_provider_error(
+            provider_name="gemini",
+            status_code=404,
+            message="models/gemini-2.0-flash-fake is not found for API version v1beta",
+        )
+        is ProviderFailureKind.MODEL_NOT_FOUND
+    )
+
+
+def test_generic_provider_404_is_model_not_found() -> None:
+    """Any unlisted provider returning HTTP 404 should fall back gracefully."""
+    assert (
+        classify_provider_error(
+            provider_name="custom_llm",
+            status_code=404,
+            message="404 Not Found",
+        )
+        is ProviderFailureKind.MODEL_NOT_FOUND
+    )

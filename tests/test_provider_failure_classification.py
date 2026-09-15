@@ -53,6 +53,10 @@ def test_minimax_region_profiles_use_anthropic_failure_classification(provider: 
         classify_provider_error(provider, 401, raw_code="authentication_error")
         is ProviderFailureKind.AUTH_INVALID
     )
+    assert (
+        classify_provider_error(provider, 404, raw_code="not_found_error")
+        is ProviderFailureKind.MODEL_NOT_FOUND
+    )
 
 
 @pytest.mark.parametrize(
@@ -161,9 +165,7 @@ def test_agent_fallback_does_not_retry_unscoped_gateway_numbers(message: str) ->
         "HTTP 523",
     ],
 )
-def test_provider_failure_classifies_gateway_transient_errors(
-    provider: str, message: str
-) -> None:
+def test_provider_failure_classifies_gateway_transient_errors(provider: str, message: str) -> None:
     assert (
         classify_provider_error(provider, None, message=message)
         is ProviderFailureKind.PROVIDER_OVERLOADED
@@ -187,8 +189,7 @@ def test_provider_failure_classifies_gateway_transient_errors(
 )
 def test_provider_failure_does_not_classify_unscoped_gateway_numbers(message: str) -> None:
     assert (
-        classify_provider_error("openrouter", None, message=message)
-        is ProviderFailureKind.UNKNOWN
+        classify_provider_error("openrouter", None, message=message) is ProviderFailureKind.UNKNOWN
     )
 
 
@@ -209,9 +210,7 @@ def test_agent_fallback_still_does_not_retry_auth_failures() -> None:
         ("", "empty_response"),
     ],
 )
-def test_provider_failure_classifies_empty_responses(
-    raw_code: str, message: str
-) -> None:
+def test_provider_failure_classifies_empty_responses(raw_code: str, message: str) -> None:
     assert (
         classify_provider_error("openrouter", None, raw_code=raw_code, message=message)
         is ProviderFailureKind.EMPTY_RESPONSE

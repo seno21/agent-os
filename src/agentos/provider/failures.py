@@ -142,8 +142,31 @@ def _is_insufficient_credits(text: str) -> bool:
             # Common across gateways
             "billing hard limit",
             "exceeded spend limit",
+            "insufficient funds",
+            "insufficient balance",
+            "out of credits",
+            "no credits remaining",
+            "balance is depleted",
+            "purchase credits",
+            "run out of credits",
+            "not have enough credits",
         )
     )
+
+
+def _is_model_not_found(status_code: int | None, text: str) -> bool:
+    if status_code == 404:
+        return True
+    return any(
+        marker in text
+        for marker in (
+            "model not found",
+            "model_not_found",
+            "not_found_error",
+            "no endpoints found",
+            "unknown model",
+        )
+    ) or ("model" in text and "does not exist" in text)
 
 
 def _is_gateway_transient(text: str) -> bool:
@@ -177,7 +200,7 @@ def classify_provider_error(
             return ProviderFailureKind.INSUFFICIENT_CREDITS
         if status_code == 429 or "rate limit" in text or "rate_limit" in text:
             return ProviderFailureKind.RATE_LIMITED
-        if "no endpoints found" in text or "model not found" in text:
+        if _is_model_not_found(status_code, text):
             return ProviderFailureKind.MODEL_NOT_FOUND
         if "does not support" in text or "unsupported" in text:
             return ProviderFailureKind.UNSUPPORTED_FEATURE
@@ -197,13 +220,15 @@ def classify_provider_error(
             return ProviderFailureKind.INSUFFICIENT_CREDITS
         if status_code == 429 or "rate_limit_error" in text:
             return ProviderFailureKind.RATE_LIMITED
+        if _is_model_not_found(status_code, text):
+            return ProviderFailureKind.MODEL_NOT_FOUND
         if status_code in _GATEWAY_TRANSIENT_STATUS_CODES or "overloaded_error" in text:
             return ProviderFailureKind.PROVIDER_OVERLOADED
         if "invalid_request_error" in text:
             return ProviderFailureKind.BAD_REQUEST
 
     if provider == "ollama":
-        if "model not found" in text or ("pull" in text and "model" in text):
+        if _is_model_not_found(status_code, text) or ("pull" in text and "model" in text):
             return ProviderFailureKind.MODEL_NOT_FOUND
         if (
             "connection refused" in text
@@ -215,6 +240,8 @@ def classify_provider_error(
 
     if status_code == 429 or "rate limit" in text:
         return ProviderFailureKind.RATE_LIMITED
+    if _is_model_not_found(status_code, text):
+        return ProviderFailureKind.MODEL_NOT_FOUND
     if status_code in _GATEWAY_TRANSIENT_STATUS_CODES or _is_gateway_transient(text):
         return ProviderFailureKind.PROVIDER_OVERLOADED
     if "malformed" in text or "invalid json" in text:
