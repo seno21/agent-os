@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   cell's text is no longer appended to the value. The shared-string reader took
   every `<t>` descendant, including the ones inside `<rPh>`, so a Japanese
   workbook read back with each reading glued onto the word it annotates.
+- `xlsx`: `create_xlsx.py`, `edit_xlsx.py`, and `inspect_xlsx.py` crashed on
+  invalid JSON, non-dict specs, non-list ops, corrupt workbooks, or non-list
+  row entries; scripts now defensively validate inputs, skip malformed rows,
+  and exit with code 2 on malformed input
+  ([#2596](https://github.com/use-agent-os/agent-os/issues/2596)).
 
 ## [2026.9.16] - 2026-09-16
 

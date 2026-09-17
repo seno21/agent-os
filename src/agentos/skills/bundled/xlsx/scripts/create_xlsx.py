@@ -39,8 +39,10 @@ def _coerce(value: Any) -> Any:
 def build(spec: dict[str, Any]) -> Workbook:
     wb = Workbook()
     default_sheet = wb.active
+    if not isinstance(spec, dict):
+        return wb
     sheets = spec.get("sheets") or []
-    if not sheets:
+    if not isinstance(sheets, list) or not sheets:
         return wb
 
     for idx, sheet_spec in enumerate(sheets):
@@ -52,8 +54,11 @@ def build(spec: dict[str, Any]) -> Workbook:
         else:
             ws = wb.create_sheet(title=str(sheet_spec.get("name") or f"Sheet{idx + 1}"))
 
-        for row in sheet_spec.get("rows", []):
-            ws.append([_coerce(v) for v in row])
+        rows = sheet_spec.get("rows", [])
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, (list, tuple)):
+                    ws.append([_coerce(v) for v in row])
 
         for merged in sheet_spec.get("merged") or []:
             if isinstance(merged, str):
@@ -80,7 +85,17 @@ def main() -> int:
     if not args.spec.is_file():
         print(f"error: spec {args.spec} not found", file=sys.stderr)
         return 2
-    spec = json.loads(args.spec.read_text(encoding="utf-8"))
+    try:
+        spec = json.loads(args.spec.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        print(f"error: spec {args.spec} is not valid JSON: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(spec, dict):
+        print(
+            f"error: spec {args.spec} must be a JSON object, got {type(spec).__name__}",
+            file=sys.stderr,
+        )
+        return 2
     wb = build(spec)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(args.out))

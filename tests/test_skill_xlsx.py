@@ -395,7 +395,6 @@ def test_the_apostrophe_escape_is_not_consumed_without_as_text(tmp_path: Path) -
     assert sheet.cell(row=2, column=1).value == "'=hello"
 
 
-
 def _import_scripts() -> tuple[Any, Any, Any]:
     sys.path.insert(0, str(SCRIPTS))
     try:
@@ -571,3 +570,121 @@ def test_clearing_a_cell_keeps_its_style(
     cell = load_workbook(str(out))["S"].cell(row=1, column=1)
     assert cell.value is None
     assert cell.number_format == "0.00%"
+
+
+@pytest.mark.parametrize(
+    "spec_text",
+    [
+        '{"invalid": json}',
+        '["not", "a", "dict"]',
+        '"string_spec"',
+        "123",
+        "null",
+    ],
+)
+def test_create_xlsx_cli_refuses_invalid_json_or_non_dict_spec(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    spec_text: str,
+) -> None:
+    create_xlsx, _, _ = _import_scripts()
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(spec_text, encoding="utf-8")
+    out_path = tmp_path / "out.xlsx"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["create_xlsx.py", str(spec_path), "--out", str(out_path)],
+    )
+
+    assert create_xlsx.main() == 2
+    captured = capsys.readouterr()
+    assert "error: spec" in captured.err
+    assert not out_path.exists()
+
+
+def test_create_xlsx_handles_empty_or_malformed_rows(tmp_path: Path) -> None:
+    create_xlsx, _, inspect_xlsx = _import_scripts()
+    spec = {
+        "sheets": [
+            {
+                "name": "S1",
+                "rows": [["A", "B"], None, 42, ["C", "D"]],
+            },
+            {
+                "name": "S2",
+                "rows": 99,
+            },
+            {
+                "name": "S3",
+                "rows": None,
+            },
+        ]
+    }
+    wb = create_xlsx.build(spec)
+    out_path = tmp_path / "book.xlsx"
+    wb.save(str(out_path))
+
+    inspected = inspect_xlsx.inspect(out_path, data_only=False)
+    sheet1 = next(s for s in inspected["sheets"] if s["name"] == "S1")
+    assert sheet1["max_row"] == 2
+    assert sheet1["rows"][0][0]["value"] == "A"
+    assert sheet1["rows"][1][0]["value"] == "C"
+
+
+@pytest.mark.parametrize(
+    "ops_text",
+    [
+        '{"invalid": json}',
+        '{"op": "set_cell"}',
+        '"string_ops"',
+        "42",
+        "null",
+    ],
+)
+def test_edit_xlsx_cli_refuses_invalid_json_or_non_list_ops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    ops_text: str,
+) -> None:
+    create_xlsx, edit_xlsx, _ = _import_scripts()
+    src = tmp_path / "book.xlsx"
+    create_xlsx.build({"sheets": [{"name": "S", "rows": [["a"]]}]}).save(str(src))
+
+    ops_path = tmp_path / "ops.json"
+    ops_path.write_text(ops_text, encoding="utf-8")
+    out_path = tmp_path / "out.xlsx"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["edit_xlsx.py", str(src), str(ops_path), "--out", str(out_path)],
+    )
+
+    assert edit_xlsx.main() == 2
+    captured = capsys.readouterr()
+    assert "error: ops" in captured.err
+    assert not out_path.exists()
+
+
+def test_inspect_xlsx_cli_refuses_corrupt_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _, _, inspect_xlsx = _import_scripts()
+    corrupt_file = tmp_path / "corrupt.xlsx"
+    corrupt_file.write_text("not an xlsx workbook", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["inspect_xlsx.py", str(corrupt_file)],
+    )
+
+    assert inspect_xlsx.main() == 2
+    captured = capsys.readouterr()
+    assert "error: failed to inspect xlsx" in captured.err
