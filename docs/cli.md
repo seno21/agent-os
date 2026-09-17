@@ -449,6 +449,7 @@ agentos channels describe telegram
 agentos channels native-commands telegram
 agentos channels native-commands slack --request-url https://agent.example/slack/events
 agentos channels add telegram --name personal
+agentos channels edit personal --agent-id research --field chat_id=12345
 agentos channels add email --name inbox \
   --field imap_host=imap.example.com --field imap_username=agent@example.com \
   --field imap_password=<app-password> --field smtp_host=smtp.example.com \
@@ -459,9 +460,11 @@ agentos channels pairing list personal
 agentos channels pairing approve personal ABCD2345
 agentos channels pairing deny personal <telegram-user-id>
 agentos channels pairing revoke personal <telegram-user-id>
+agentos channels pairing clear-pending personal
 agentos channels enable personal
 agentos channels disable personal
 agentos channels restart personal
+agentos channels logout personal
 agentos channels remove personal
 ```
 
@@ -473,11 +476,17 @@ at startup when its channel entry has `app_id`, a short-lived app configuration
 Slack manifest fragment manually; its `--request-url` must point to the
 gateway's Slack webhook endpoint.
 
-Telegram direct messages always require pairing. Pairing is binary
-(`unpaired`/`paired`), with no admin or owner tier. Groups are disabled by
-default and require an explicit group chat ID, a paired sender, and—by
-default—a bot mention. Any connected Control client may approve, deny, or
-disconnect a pairing.
+Use `agentos channels edit <name>` for partial configuration updates (patch
+semantics: omitted fields retain existing values). Use `agentos channels logout
+<name>` to disconnect and clear live session state from a running channel adapter.
+
+Telegram direct messages always require pairing. Use `agentos channels pairing
+list <name>`, `approve <name> <code>`, `deny <name> <sender-id>`, `revoke
+<name> <sender-id>`, or `clear-pending <name>` to clear unapproved pending
+requests. Pairing is binary (`unpaired`/`paired`), with no admin or owner tier.
+Groups are disabled by default and require an explicit group chat ID, a paired
+sender, and—by default—a bot mention. Any connected Control client may approve,
+deny, or disconnect a pairing.
 
 ### Platform-Native Interactive Approvals
 

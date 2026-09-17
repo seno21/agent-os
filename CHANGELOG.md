@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Documentation
+
+- Documented `agentos channels edit`, `agentos channels logout`, and `agentos channels pairing clear-pending` commands in `docs/cli.md` and the self-operation skill `SKILL.md` ([#2636](https://github.com/use-agent-os/agent-os/issues/2636)).
+
 ### Fixed
 
 - `read_spreadsheet`: a phonetic guide (furigana) stored alongside an xlsx
