@@ -57,32 +57,58 @@ def _fetch_wttr_json(location: str, timeout: float) -> dict[str, Any]:
 
 
 def _pick_current(payload: dict[str, Any]) -> dict[str, str]:
-    current = (payload.get("current_condition") or [{}])[0]
-    desc = (current.get("weatherDesc") or [{}])[0].get("value", "")
+    if not isinstance(payload, dict):
+        return {}
+    current_condition = payload.get("current_condition")
+    current = (
+        current_condition[0]
+        if isinstance(current_condition, list)
+        and current_condition
+        and isinstance(current_condition[0], dict)
+        else {}
+    )
+    if not current:
+        return {}
+    weather_desc = current.get("weatherDesc")
+    desc_entry = (
+        weather_desc[0]
+        if isinstance(weather_desc, list) and weather_desc and isinstance(weather_desc[0], dict)
+        else {}
+    )
+    desc = str(desc_entry.get("value") or "")
     return {
         "condition": desc,
-        "temperature_c": str(current.get("temp_C", "")),
-        "feels_like_c": str(current.get("FeelsLikeC", "")),
-        "humidity_pct": str(current.get("humidity", "")),
-        "precip_mm": str(current.get("precipMM", "")),
-        "wind_kmph": str(current.get("windspeedKmph", "")),
+        "temperature_c": str(current.get("temp_C") or ""),
+        "feels_like_c": str(current.get("FeelsLikeC") or ""),
+        "humidity_pct": str(current.get("humidity") or ""),
+        "precip_mm": str(current.get("precipMM") or ""),
+        "wind_kmph": str(current.get("windspeedKmph") or ""),
     }
 
 
 def _pick_forecast(payload: dict[str, Any], days: int) -> list[dict[str, str]]:
     forecast: list[dict[str, str]] = []
-    for item in (payload.get("weather") or [])[:days]:
-        hourly = item.get("hourly") or []
-        rain_chances = [
-            int(h.get("chanceofrain", 0))
-            for h in hourly
-            if str(h.get("chanceofrain", "")).isdigit()
-        ]
+    if not isinstance(payload, dict):
+        return forecast
+    weather = payload.get("weather")
+    if not isinstance(weather, list):
+        return forecast
+    for item in weather[:days]:
+        if not isinstance(item, dict):
+            continue
+        hourly = item.get("hourly")
+        hourly_list = hourly if isinstance(hourly, list) else []
+        rain_chances: list[int] = []
+        for h in hourly_list:
+            if isinstance(h, dict):
+                chance = str(h.get("chanceofrain", ""))
+                if chance.isdigit():
+                    rain_chances.append(int(chance))
         forecast.append(
             {
-                "date": str(item.get("date", "")),
-                "min_c": str(item.get("mintempC", "")),
-                "max_c": str(item.get("maxtempC", "")),
+                "date": str(item.get("date") or ""),
+                "min_c": str(item.get("mintempC") or ""),
+                "max_c": str(item.get("maxtempC") or ""),
                 "rain_chance_max_pct": str(max(rain_chances) if rain_chances else ""),
                 "rain_hours_over_50pct": str(sum(1 for value in rain_chances if value >= 50)),
             }

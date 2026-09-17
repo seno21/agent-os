@@ -97,3 +97,73 @@ def test_weather_entrypoint_returns_seasonal_hint_on_network_error(
     assert payload["forecast"] == []
     assert payload["errors"]
     assert "rainy season" in payload["seasonal_hint"]
+
+
+def test_weather_entrypoint_handles_null_values_and_malformed_items(
+    monkeypatch,
+    capsys,
+) -> None:
+    module = _load_module()
+
+    def fake_fetch(_location: str, _timeout: float):
+        return {
+            "current_condition": [
+                {
+                    "weatherDesc": [None],
+                    "temp_C": None,
+                    "FeelsLikeC": None,
+                    "humidity": None,
+                    "precipMM": None,
+                    "windspeedKmph": None,
+                },
+            ],
+            "weather": [
+                {
+                    "date": None,
+                    "mintempC": None,
+                    "maxtempC": None,
+                    "hourly": [
+                        None,
+                        "invalid",
+                        {"chanceofrain": "50"},
+                        {"chanceofrain": None},
+                    ],
+                },
+                None,
+                "bad_item",
+            ],
+        }
+
+    monkeypatch.setattr(module, "_fetch_wttr_json", fake_fetch)
+
+    status = module.main(["--location", "London"])
+
+    assert status == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["location"] == "London"
+    assert payload["current"]["condition"] == ""
+    assert payload["current"]["temperature_c"] == ""
+    assert payload["current"]["feels_like_c"] == ""
+    assert payload["forecast"][0]["rain_chance_max_pct"] == "50"
+    assert payload["errors"] == []
+
+
+def test_weather_entrypoint_handles_non_dict_payload(
+    monkeypatch,
+    capsys,
+) -> None:
+    module = _load_module()
+
+    def fake_fetch(_location: str, _timeout: float):
+        return ["not", "a", "dict"]
+
+    monkeypatch.setattr(module, "_fetch_wttr_json", fake_fetch)
+
+    status = module.main(["--location", "Paris"])
+
+    assert status == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["location"] == "Paris"
+    assert payload["current"] == {}
+    assert payload["forecast"] == []
+    assert payload["errors"] == []
