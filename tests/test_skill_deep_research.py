@@ -68,9 +68,9 @@ def test_iterate_refuses_non_list_record_file(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "must be a JSON list of evidence items" in captured.err
-    assert (
-        plan_path.read_text(encoding="utf-8") == initial_plan
-    ), "refused record must not mutate plan"
+    assert plan_path.read_text(encoding="utf-8") == initial_plan, (
+        "refused record must not mutate plan"
+    )
 
 
 @pytest.mark.parametrize(
@@ -146,3 +146,112 @@ def test_compile_refuses_invalid_plan_file(
     captured = capsys.readouterr()
     assert "is not valid JSON or plan schema" in captured.err
     assert not out_path.exists()
+
+
+def test_iterate_records_evidence_with_null_and_string_relevance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plan_script, iterate, _ = _import_scripts()
+    plan_path = _make_sample_plan(tmp_path)
+
+    evidence_data = [
+        {
+            "subquestion_id": "sq-001",
+            "url": "https://example.com/1",
+            "relevance": None,
+            "title": None,
+            "excerpt": None,
+            "fetched_at": None,
+        },
+        {
+            "subquestion_id": "sq-002",
+            "url": "https://example.com/2",
+            "relevance": "0.85",
+            "title": "Example 2",
+        },
+        {
+            "subquestion_id": "sq-003",
+            "url": "https://example.com/3",
+            "relevance": "high",
+            "title": "Example 3",
+        },
+        {
+            "subquestion_id": "sq-001",
+            "url": "https://example.com/4",
+            "relevance": True,
+        },
+    ]
+    record_path = tmp_path / "evidence.json"
+    record_path.write_text(
+        __import__("json").dumps(evidence_data),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["iterate.py", "--plan", str(plan_path), "--round", "1", "--record", str(record_path)],
+    )
+
+    assert iterate.main() == 0
+    updated_plan = plan_script.Plan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+
+    sq1 = next(sq for sq in updated_plan.subquestions if sq.id == "sq-001")
+    assert len(sq1.sources) == 2
+    assert sq1.sources[0].url == "https://example.com/1"
+    assert sq1.sources[0].title == ""
+    assert sq1.sources[0].excerpt == ""
+    assert sq1.sources[0].fetched_at == ""
+    assert sq1.sources[0].relevance == 0.0
+    assert sq1.sources[1].relevance == 0.0
+
+    sq2 = next(sq for sq in updated_plan.subquestions if sq.id == "sq-002")
+    assert len(sq2.sources) == 1
+    assert sq2.sources[0].relevance == 0.85
+    assert sq2.sources[0].title == "Example 2"
+
+    sq3 = next(sq for sq in updated_plan.subquestions if sq.id == "sq-003")
+    assert len(sq3.sources) == 1
+    assert sq3.sources[0].relevance == 0.0
+    assert sq3.sources[0].title == "Example 3"
+
+
+def test_iterate_skips_non_dict_evidence_items(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plan_script, iterate, _ = _import_scripts()
+    plan_path = _make_sample_plan(tmp_path)
+
+    evidence_data = [
+        {"subquestion_id": "sq-001", "url": "https://example.com/1"},
+        "invalid-item",
+        None,
+        42,
+        {"subquestion_id": "sq-002", "url": "https://example.com/2"},
+    ]
+    record_path = tmp_path / "evidence.json"
+    record_path.write_text(
+        __import__("json").dumps(evidence_data),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["iterate.py", "--plan", str(plan_path), "--round", "1", "--record", str(record_path)],
+    )
+
+    assert iterate.main() == 0
+    updated_plan = plan_script.Plan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+
+    sq1 = next(sq for sq in updated_plan.subquestions if sq.id == "sq-001")
+    assert len(sq1.sources) == 1
+    assert sq1.sources[0].url == "https://example.com/1"
+
+    sq2 = next(sq for sq in updated_plan.subquestions if sq.id == "sq-002")
+    assert len(sq2.sources) == 1
+    assert sq2.sources[0].url == "https://example.com/2"

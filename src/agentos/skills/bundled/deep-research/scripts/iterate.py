@@ -38,21 +38,38 @@ def under_target(plan: Plan) -> list[dict[str, object]]:
     return out
 
 
+def _safe_str(val: object) -> str:
+    if val is None:
+        return ""
+    return str(val)
+
+
+def _safe_float(val: object, default: float = 0.0) -> float:
+    if val is None or isinstance(val, bool):
+        return default
+    try:
+        return float(val)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return default
+
+
 def record_evidence(plan: Plan, evidence: list[dict[str, object]]) -> int:
     by_id = {sq.id: sq for sq in plan.subquestions}
     added = 0
     for item in evidence:
-        sq_id = str(item.get("subquestion_id", ""))
-        if sq_id not in by_id:
+        if not isinstance(item, dict):
+            continue
+        sq_id = _safe_str(item.get("subquestion_id"))
+        if not sq_id or sq_id not in by_id:
             continue
         sq = by_id[sq_id]
         sq.sources.append(
             Source(
-                url=str(item.get("url", "")),
-                title=str(item.get("title", "")),
-                excerpt=str(item.get("excerpt", "")),
-                relevance=float(item.get("relevance", 0.0)),
-                fetched_at=str(item.get("fetched_at", "")),
+                url=_safe_str(item.get("url")),
+                title=_safe_str(item.get("title")),
+                excerpt=_safe_str(item.get("excerpt")),
+                relevance=_safe_float(item.get("relevance"), 0.0),
+                fetched_at=_safe_str(item.get("fetched_at")),
             )
         )
         added += 1

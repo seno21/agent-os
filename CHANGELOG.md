@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `deep-research`: `iterate.py` crashed on evidence items with `null`
+  relevance (`TypeError`), non-numeric relevance strings (`ValueError`),
+  or non-dict items in the evidence list (`AttributeError`), and stringified
+  `null` metadata fields into `"None"` literals; evidence items are now
+  defensively parsed and validated
+  ([#2584](https://github.com/use-agent-os/agent-os/issues/2584)).
 - `read_spreadsheet`: a phonetic guide (furigana) stored alongside an xlsx
   cell's text is no longer appended to the value. The shared-string reader took
   every `<t>` descendant, including the ones inside `<rPh>`, so a Japanese
