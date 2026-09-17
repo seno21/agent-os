@@ -56,7 +56,8 @@ def test_env_var_home_reads_are_blocked_like_tilde(
 
 def test_env_var_home_exfiltration_is_blocked(home: Path) -> None:
     assert sensitive_path_in_text("cp $HOME/.aws/credentials /tmp/leak.txt") == "~/.aws"
-    assert sensitive_path_in_text("cat ${HOME}/.docker/config") == "~/.docker/config"
+    assert sensitive_path_in_text("cat ${HOME}/.docker/config") == "~/.docker"
+    assert sensitive_path_in_text("cat ${HOME}/.docker/config.json") == "~/.docker"
 
 
 @pytest.mark.parametrize("spelling", ["$HOME", "${HOME}"])
