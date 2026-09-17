@@ -338,8 +338,19 @@ class TestBotTokensAndPassphrases:
 
     @pytest.mark.parametrize(
         "name",
-        ["bot_name", "bot_id", "bot_count", "bot_status", "bot_version", "robot_arm",
-         "chatbot_config", "chatbot_model", "botHandler", "MAX_BOTS", "token_budget"],
+        [
+            "bot_name",
+            "bot_id",
+            "bot_count",
+            "bot_status",
+            "bot_version",
+            "robot_arm",
+            "chatbot_config",
+            "chatbot_model",
+            "botHandler",
+            "MAX_BOTS",
+            "token_budget",
+        ],
     )
     def test_an_unqualified_bot_name_is_not_a_credential(self, name: str) -> None:
         """The pair must be adjacent, so ``bot`` alone still means nothing."""
@@ -347,8 +358,16 @@ class TestBotTokensAndPassphrases:
 
     @pytest.mark.parametrize(
         "name",
-        ["passphrase", "PASSPHRASE", "Passphrase", "ssh_passphrase", "SSH_PASSPHRASE",
-         "gpg_passphrase", "key_passphrase", "keystore_passphrase"],
+        [
+            "passphrase",
+            "PASSPHRASE",
+            "Passphrase",
+            "ssh_passphrase",
+            "SSH_PASSPHRASE",
+            "gpg_passphrase",
+            "key_passphrase",
+            "keystore_passphrase",
+        ],
     )
     def test_a_passphrase_is_a_credential(self, name: str) -> None:
         """``passphrase`` belongs beside ``password`` and ``passwd``.
@@ -502,6 +521,120 @@ class TestTerminalOutput:
         """The widened split must not drag ordinary output into the pass."""
         out = redact.redact_terminal_output("MAX_TOKENS=4096\n", "cd /srv\ncat config.py")
         assert out == "MAX_TOKENS=4096\n"
+
+
+class TestPgpassAndNetrc:
+    """Credential files with non-assignment formats (.pgpass and .netrc) must be masked."""
+
+    PG_PASS = "SuperSecretPassword123"
+    NETRC_PASS = "MySecretToken123"
+    ACCOUNT_PASS = "SecondaryAccountToken456"
+
+    def test_pgpass_terminal_output_masks_password(self) -> None:
+        out = redact.redact_terminal_output(
+            f"localhost:5432:mydb:myuser:{self.PG_PASS}\n",
+            "cat ~/.pgpass",
+        )
+        assert self.PG_PASS not in out
+        assert "localhost:5432:mydb:myuser:" in out
+
+    def test_pgpass_terminal_output_with_wildcards(self) -> None:
+        out = redact.redact_terminal_output(
+            f"*:5432:*:postgres:{self.PG_PASS}\n",
+            "cat ~/.pgpass",
+        )
+        assert self.PG_PASS not in out
+        assert "*:5432:*:postgres:" in out
+
+    def test_pgpass_file_output_gets_nonreusable_sentinel(self) -> None:
+        out = redact.redact_file_output(
+            f"localhost:5432:mydb:myuser:{self.PG_PASS}\n",
+            path="~/.pgpass",
+        )
+        assert self.PG_PASS not in out
+        assert "«redacted:Supe…" in out
+
+    def test_pgpass_file_output_with_line_numbers(self) -> None:
+        out = redact.redact_file_output(
+            f"1\tlocalhost:5432:mydb:myuser:{self.PG_PASS}\n",
+            path="~/.pgpass",
+        )
+        assert self.PG_PASS not in out
+        assert out.startswith("1\tlocalhost:5432:mydb:myuser:")
+
+    def test_pgpass_file_output_with_diff_prefix(self) -> None:
+        out = redact.redact_file_output(
+            f"+localhost:5432:mydb:myuser:{self.PG_PASS}\n",
+            path="~/.pgpass",
+        )
+        assert self.PG_PASS not in out
+        assert out.startswith("+localhost:5432:mydb:myuser:")
+
+    def test_netrc_terminal_output_masks_password(self) -> None:
+        out = redact.redact_terminal_output(
+            f"machine example.com login myuser password {self.NETRC_PASS}\n",
+            "cat ~/.netrc",
+        )
+        assert self.NETRC_PASS not in out
+        assert "machine example.com login myuser password " in out
+
+    def test_netrc_terminal_output_with_account_token(self) -> None:
+        text = (
+            f"machine example.com login myuser password {self.NETRC_PASS} "
+            f"account {self.ACCOUNT_PASS}\n"
+        )
+        out = redact.redact_terminal_output(text, "cat ~/_netrc")
+        assert self.NETRC_PASS not in out
+        assert self.ACCOUNT_PASS not in out
+
+    def test_netrc_default_entry(self) -> None:
+        out = redact.redact_terminal_output(
+            f"default login myuser password {self.NETRC_PASS}\n",
+            "cat ~/.netrc",
+        )
+        assert self.NETRC_PASS not in out
+        assert "default login myuser password " in out
+
+    def test_netrc_quoted_password(self) -> None:
+        out = redact.redact_file_output(
+            f'machine example.com login myuser password "{self.NETRC_PASS}"\n',
+            path="~/.netrc",
+        )
+        assert self.NETRC_PASS not in out
+        assert 'password "«redacted:MySe…»"' in out
+
+    def test_netrc_multiline_format(self) -> None:
+        text = f"machine example.com\n    login myuser\n    password {self.NETRC_PASS}\n"
+        out = redact.redact_file_output(text, path="~/.netrc")
+        assert self.NETRC_PASS not in out
+        assert "password «redacted:MySe…»" in out
+
+    def test_pgpass_and_netrc_reference_values_preserved(self) -> None:
+        assert "password $DB_PASS" in redact.redact_file_output(
+            "machine api.example.com login user password $DB_PASS\n",
+            path="~/.netrc",
+        )
+        assert "password <YOUR_PASS>" in redact.redact_file_output(
+            "machine api.example.com login user password <YOUR_PASS>\n",
+            path="~/.netrc",
+        )
+        assert "localhost:5432:mydb:myuser:$PGPASS" in redact.redact_file_output(
+            "localhost:5432:mydb:myuser:$PGPASS\n",
+            path="~/.pgpass",
+        )
+
+    def test_credential_text_marker_detects_pgpass_and_netrc(self) -> None:
+        assert (
+            redact.credential_text_marker(f"localhost:5432:mydb:myuser:{self.PG_PASS}")
+            == "secret_assignment"
+        )
+        assert (
+            redact.credential_text_marker(
+                f"machine example.com login myuser password {self.NETRC_PASS}"
+            )
+            == "secret_assignment"
+        )
+        assert redact.credential_text_marker("password is required") is None
 
 
 def test_the_disable_switch_is_read_once_at_import(monkeypatch: pytest.MonkeyPatch) -> None:

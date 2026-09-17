@@ -321,6 +321,43 @@ _ASSIGNMENT_RE = re.compile(
     """
 )
 
+#: .pgpass format: hostname:port:database:username:password
+#: Each entry is colon-delimited with 5 fields; colons and backslashes in fields
+#: can be escaped with a backslash.
+_PGPASS_LINE_RE = re.compile(
+    r"""(?mx)
+    ^
+    (?P<prefix>(?:\d+\t)?(?:\d+:)?(?:[+\-]{1,2})?\s*)
+    (?P<host>(?:\\:|\\|[^\s:])+)
+    :
+    (?P<port>\d+|\*)
+    :
+    (?P<db>(?:\\:|\\|[^\s:])+)
+    :
+    (?P<user>(?:\\:|\\|[^\s:])+)
+    :
+    (?P<password>[^\r\n]+)
+    $
+    """
+)
+
+#: .netrc format: tokens separated by whitespace or newlines. Passwords follow
+#: `password`, `passwd`, or `account` keywords.
+_NETRC_PASSWORD_RE = re.compile(
+    r"""(?ix)
+    (?:^|[\s"'{,(;])                    # start boundary
+    (?:\d+\t)?                          # grep -n line prefix with tab
+    (?:[+\-]{1,2})?                     # diff marker: unified +/-, combined ++/--
+    \b(password|passwd|account)\b       # netrc credential keyword
+    \s+                                 # whitespace separating keyword and token
+    (?:
+        "([^"\n]{1,4096})"              # double-quoted value
+      | '([^'\n]{1,4096})'              # single-quoted value
+      | ([^\s,;)}\]"']{1,4096})         # bare token
+    )
+    """
+)
+
 #: A header value ends at whitespace, at a quote, or at the punctuation that
 #: closes the structure carrying it. Running past ``}``/``)``/``]``/``;`` is
 #: what turned ``{"xi-api-key": api_key}`` into unbalanced source code.
@@ -401,6 +438,14 @@ def credential_text_marker(text: str | None) -> str | None:
             continue
         value = match.group(2) or match.group(3) or match.group(4) or ""
         if _is_secret_literal_value(value):
+            return "secret_assignment"
+    if ":" in text:
+        for match in _PGPASS_LINE_RE.finditer(text):
+            if _is_secret_literal_value(match.group("password")):
+                return "secret_assignment"
+    for match in _NETRC_PASSWORD_RE.finditer(text):
+        val = match.group(2) or match.group(3) or match.group(4) or ""
+        if _is_secret_literal_value(val):
             return "secret_assignment"
     return None
 
@@ -576,8 +621,12 @@ def _redact_named_credentials(
             ),
             text,
         )
-    if assignments and ("=" in text or ":" in text):
-        text = _redact_assignments(text, mask=mask)
+    if assignments:
+        if ":" in text:
+            text = _redact_pgpass(text, mask=mask)
+        text = _redact_netrc(text, mask=mask)
+        if "=" in text or ":" in text:
+            text = _redact_assignments(text, mask=mask)
     return text
 
 
@@ -651,6 +700,36 @@ def _redact_pem_blocks(text: str, *, line_safe: bool) -> str:
         return "\n".join(masked)
 
     return _PEM_PRIVATE_KEY_BLOCK_RE.sub(_mask_block, text)
+
+
+def _redact_pgpass(text: str, *, mask: Callable[[str], str] = _mask_token) -> str:
+    """Mask passwords in PostgreSQL .pgpass format lines."""
+
+    def _replace(match: re.Match[str]) -> str:
+        password = match.group("password")
+        if not password or not _is_secret_literal_value(password):
+            return match.group(0)
+        return (
+            f"{match.group('prefix')}{match.group('host')}:{match.group('port')}:"
+            f"{match.group('db')}:{match.group('user')}:{mask(password)}"
+        )
+
+    return _PGPASS_LINE_RE.sub(_replace, text)
+
+
+def _redact_netrc(text: str, *, mask: Callable[[str], str] = _mask_token) -> str:
+    """Mask password and account tokens in .netrc format entries."""
+
+    def _replace(match: re.Match[str]) -> str:
+        val_group = 2 if match.group(2) is not None else (3 if match.group(3) is not None else 4)
+        value = match.group(val_group) or ""
+        if not _is_secret_literal_value(value):
+            return match.group(0)
+        prefix = match.group(0)[: match.start(val_group) - match.start(0)]
+        suffix = match.group(0)[match.end(val_group) - match.start(0) :]
+        return f"{prefix}{mask(value)}{suffix}"
+
+    return _NETRC_PASSWORD_RE.sub(_replace, text)
 
 
 def _redact_assignments(text: str, *, mask: Callable[[str], str] = _mask_token) -> str:
