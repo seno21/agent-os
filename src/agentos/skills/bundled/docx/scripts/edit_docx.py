@@ -211,9 +211,23 @@ def main() -> int:
     if not args.ops.is_file():
         print(f"error: ops {args.ops} not found", file=sys.stderr)
         return 2
-    raw = json.loads(args.ops.read_text(encoding="utf-8"))
-    ops = raw if isinstance(raw, list) else []
-    doc = Document(str(args.input))
+    try:
+        raw = json.loads(args.ops.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        print(f"error: ops {args.ops} is not valid JSON: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(raw, list):
+        print(
+            f"error: ops {args.ops} must be a JSON list of operations, got {type(raw).__name__}",
+            file=sys.stderr,
+        )
+        return 2
+    ops = raw
+    try:
+        doc = Document(str(args.input))
+    except Exception as exc:
+        print(f"error: failed to open docx {args.input}: {exc}", file=sys.stderr)
+        return 2
     applied = apply_ops(doc, ops)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(args.out))

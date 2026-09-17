@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `docx`: `create_docx.py`, `edit_docx.py`, and `inspect_docx.py` crashed on
+  invalid JSON, non-dict specs, non-list ops, corrupt files, or empty/malformed
+  table rows (`[[]]`); scripts now defensively validate inputs, handle zero-column
+  table definitions gracefully, and exit with code 2 on malformed input
+  ([#2586](https://github.com/use-agent-os/agent-os/issues/2586)).
 - `read_spreadsheet`: a phonetic guide (furigana) stored alongside an xlsx
   cell's text is no longer appended to the value. The shared-string reader took
   every `<t>` descendant, including the ones inside `<rPh>`, so a Japanese

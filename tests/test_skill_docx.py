@@ -548,3 +548,134 @@ def test_apply_ops_counts_only_the_replace_runs_that_wrote() -> None:
 
     assert applied == 2
     assert [p.text for p in doc.paragraphs] == ["Hi world", "Last paragraph"]
+
+
+@pytest.mark.parametrize(
+    "spec_text",
+    [
+        '{"invalid": json}',
+        '["not", "a", "dict"]',
+        '"string_spec"',
+        "123",
+        "null",
+    ],
+)
+def test_create_docx_cli_refuses_invalid_json_or_non_dict_spec(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    spec_text: str,
+) -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import create_docx  # type: ignore[import-not-found]
+    finally:
+        sys.path.pop(0)
+
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(spec_text, encoding="utf-8")
+    out_path = tmp_path / "out.docx"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["create_docx.py", str(spec_path), "--out", str(out_path)],
+    )
+
+    assert create_docx.main() == 2
+    captured = capsys.readouterr()
+    assert "error: spec" in captured.err
+    assert not out_path.exists()
+
+
+def test_create_docx_handles_empty_or_malformed_table_rows(tmp_path: Path) -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import create_docx  # type: ignore[import-not-found]
+        import inspect_docx  # type: ignore[import-not-found]
+    finally:
+        sys.path.pop(0)
+
+    spec = {
+        "body": [
+            {"kind": "table", "rows": [[]]},
+            {"kind": "table", "rows": [["A", "B"], None, "invalid", ["C"]]},
+            {"kind": "heading", "level": "invalid", "text": "Heading Test"},
+        ]
+    }
+    doc = create_docx.build(spec)
+    out_path = tmp_path / "table_out.docx"
+    doc.save(str(out_path))
+
+    inspected = inspect_docx.inspect(out_path)
+    assert len(inspected["tables"]) == 1
+    assert inspected["tables"][0][0][0] == "A"
+    assert inspected["tables"][0][0][1] == "B"
+    assert inspected["tables"][0][1][0] == "C"
+
+
+@pytest.mark.parametrize(
+    "ops_text",
+    [
+        '{"invalid": json}',
+        '{"op": "replace_text"}',
+        '"string_ops"',
+        "42",
+        "null",
+    ],
+)
+def test_edit_docx_cli_refuses_invalid_json_or_non_list_ops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    ops_text: str,
+) -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import create_docx  # type: ignore[import-not-found]
+        import edit_docx  # type: ignore[import-not-found]
+    finally:
+        sys.path.pop(0)
+
+    src = tmp_path / "src.docx"
+    create_docx.build({"body": [{"kind": "paragraph", "text": "Hello"}]}).save(str(src))
+
+    ops_path = tmp_path / "ops.json"
+    ops_path.write_text(ops_text, encoding="utf-8")
+    out_path = tmp_path / "out.docx"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["edit_docx.py", str(src), str(ops_path), "--out", str(out_path)],
+    )
+
+    assert edit_docx.main() == 2
+    captured = capsys.readouterr()
+    assert "error: ops" in captured.err
+    assert not out_path.exists()
+
+
+def test_inspect_docx_cli_refuses_corrupt_docx(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import inspect_docx  # type: ignore[import-not-found]
+    finally:
+        sys.path.pop(0)
+
+    corrupt_file = tmp_path / "corrupt.docx"
+    corrupt_file.write_text("not a docx file", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["inspect_docx.py", str(corrupt_file)],
+    )
+
+    assert inspect_docx.main() == 2
+    captured = capsys.readouterr()
+    assert "error: failed to inspect docx" in captured.err
