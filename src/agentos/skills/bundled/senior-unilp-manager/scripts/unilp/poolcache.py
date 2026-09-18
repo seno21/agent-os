@@ -31,13 +31,14 @@ _DIR = "pools"
 
 
 def _path(chain: dict) -> Path:
-    return state_root() / _DIR / f"{chain['key']}.json"
+    key = chain.get("key") if isinstance(chain, dict) else None
+    return state_root() / _DIR / f"{key or 'unknown'}.json"
 
 
 def _read(chain: dict) -> dict[str, dict]:
     try:
         raw = _path(chain).read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, ValueError, UnicodeError):
         return {}
     try:
         data = json.loads(raw)
@@ -48,6 +49,8 @@ def _read(chain: dict) -> dict[str, dict]:
 
 def lookup(chain: dict, pool_id: str) -> dict | None:
     """The PoolKey remembered for ``pool_id`` on this chain, or None."""
+    if not isinstance(chain, dict) or not isinstance(pool_id, str):
+        return None
     entry = _read(chain).get(pool_id.lower())
     if not isinstance(entry, dict):
         return None
@@ -59,24 +62,43 @@ def lookup(chain: dict, pool_id: str) -> dict | None:
 
 def remember(chain: dict, inits: list[dict]) -> None:
     """Record ``poolId -> PoolKey`` for every init. Never raises: caching is optional."""
-    fresh = {}
-    for init in inits:
-        pool_id = (init.get("poolId") or "").lower()
-        key = init.get("poolKey")
-        if pool_id and isinstance(key, dict):
-            fresh[pool_id] = normalize_pool_key(key)
-    if not fresh:
-        return
     try:
+        if not isinstance(chain, dict) or not isinstance(inits, list):
+            return
+        fresh = {}
+        for init in inits:
+            if not isinstance(init, dict):
+                continue
+            pool_id = init.get("poolId")
+            if not isinstance(pool_id, str):
+                continue
+            pool_id = pool_id.lower()
+            key = init.get("poolKey")
+            if pool_id and isinstance(key, dict):
+                try:
+                    fresh[pool_id] = normalize_pool_key(key)
+                except Exception:
+                    continue
+        if not fresh:
+            return
         path = _path(chain)
         current = _read(chain)
         if all(current.get(k) == v for k, v in fresh.items()):
             return
         current.update(fresh)
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".pools-", suffix=".json")
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(current, handle, indent=1, sort_keys=True)
-        os.replace(tmp, path)
-    except OSError:
+        tmp = None
+        try:
+            fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".pools-", suffix=".json")
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(current, handle, indent=1, sort_keys=True)
+            os.replace(tmp, path)
+            tmp = None
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+    except Exception:
         return

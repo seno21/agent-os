@@ -187,6 +187,71 @@ def test_pool_key_for_id_survives_a_corrupt_cache_file(state_dir, robinhood) -> 
     assert key["tickSpacing"] == 200
 
 
+def test_pool_key_for_id_survives_binary_corrupt_cache_file(state_dir, robinhood) -> None:
+    lp_read = _load("lp_read")
+    poolcache = _load("unilp.poolcache")
+    (state_dir / "pools").mkdir(parents=True, exist_ok=True)
+    (state_dir / "pools" / "robinhood.json").write_bytes(b"\xff\xfe\x00\x00invalid-utf8")
+
+    assert poolcache.lookup(robinhood, AGENTOS_POOL) is None
+
+    args = {
+        "currency0": WETH,
+        "currency1": AGENTOS,
+        "fee": "8388608",
+        "tick-spacing": "200",
+        "hooks": DOPPLER_HOOK,
+    }
+    key = lp_read.pool_key_for_id(_NoChain(), robinhood, AGENTOS_POOL, args)
+    assert key["tickSpacing"] == 200
+
+
+def test_poolcache_remember_never_raises_on_malformed_init_or_pool_key(
+    state_dir, robinhood
+) -> None:
+    poolcache = _load("unilp.poolcache")
+
+    # None, malformed dicts, invalid addresses, missing fields, non-dict inits
+    malformed_inits = [
+        None,
+        "not-a-dict",
+        {"poolId": None, "poolKey": None},
+        {"poolId": AGENTOS_POOL, "poolKey": "not-a-dict"},
+        {"poolId": AGENTOS_POOL, "poolKey": {"currency0": "invalid"}},
+        {"poolId": AGENTOS_POOL, "poolKey": {"currency0": WETH}},  # missing currency1, fee, etc.
+        {"poolId": AGENTOS_POOL, "poolKey": {**AGENTOS_KEY, "fee": "not-an-int"}},
+        {"poolId": AGENTOS_POOL, "poolKey": AGENTOS_KEY},  # valid entry alongside malformed ones
+    ]
+
+    poolcache.remember(robinhood, malformed_inits)
+
+    assert poolcache.lookup(robinhood, AGENTOS_POOL) == AGENTOS_KEY
+    assert poolcache.lookup(None, AGENTOS_POOL) is None  # invalid chain
+    assert poolcache.lookup(robinhood, None) is None  # invalid pool_id
+    poolcache.remember(None, malformed_inits)  # invalid chain doesn't raise
+    poolcache.remember(robinhood, None)  # invalid inits doesn't raise
+
+
+def test_poolcache_remember_cleans_up_tmp_file_on_write_failure(
+    state_dir, robinhood, monkeypatch
+) -> None:
+    poolcache = _load("unilp.poolcache")
+    pools_dir = state_dir / "pools"
+
+    # Simulate an error during os.replace
+    def _exploding_replace(src, dst):
+        raise OSError("disk write failed")
+
+    monkeypatch.setattr(os, "replace", _exploding_replace)
+
+    poolcache.remember(robinhood, [{"poolId": AGENTOS_POOL, "poolKey": AGENTOS_KEY}])
+
+    # No leftover .pools-*.json files should exist in pools dir
+    if pools_dir.exists():
+        tmp_files = list(pools_dir.glob(".pools-*.json"))
+        assert tmp_files == [], f"leaked temporary files: {tmp_files}"
+
+
 # ---------------------------------------------------------------------------
 # --amount max
 # ---------------------------------------------------------------------------
