@@ -15,6 +15,7 @@ the round-trip without their parsers breaking.
 Usage:
     python read.py --input path/to/file.txt [--max-bytes 200000]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,14 +23,51 @@ import sys
 from pathlib import Path
 
 
-def main() -> int:
+def _write_stdout(text: str) -> None:
+    """Write *text* to stdout as UTF-8, surviving a non-UTF-8 stdout encoding.
+
+    ``print`` encodes through ``sys.stdout.encoding``, which on Windows is the
+    console code page (cp1252, cp936, cp932) and not UTF-8, so a character
+    outside that page raises ``UnicodeEncodeError`` before a byte is written —
+    the document decides whether the skill runs. The binary buffer is therefore
+    the primary path, matching other bundled skills. A stream without a usable
+    ``buffer`` — a wrapper, or a captured stdout — still gets the text, escaped
+    rather than lost.
+    """
+    try:
+        buffer = getattr(sys.stdout, "buffer", None)
+    except Exception:
+        buffer = None
+
+    if buffer is not None:
+        try:
+            buffer.write(text.encode("utf-8"))
+            buffer.flush()
+            return
+        except (AttributeError, OSError, ValueError):
+            # Buffer closed or not writable — fall through to the text layer.
+            pass
+
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    # Lossless: unencodable chars become \\uXXXX escapes, not "?".
+    sys.stdout.write(text.encode(encoding, errors="backslashreplace").decode(encoding))
+    sys.stdout.flush()
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", "-i", required=True)
     parser.add_argument(
-        "--max-bytes", type=int, default=200_000,
+        "--max-bytes",
+        type=int,
+        default=200_000,
         help="Refuse to read files larger than this many bytes.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.max_bytes < 0:
+        print(f"Error: --max-bytes must be non-negative, got {args.max_bytes}", file=sys.stderr)
+        return 1
 
     path = Path(args.input)
     if not path.is_file():
@@ -50,10 +88,7 @@ def main() -> int:
         print(f"Error: not valid UTF-8: {path} ({exc})", file=sys.stderr)
         return 1
 
-    # Write through the binary buffer to bypass the Windows console
-    # cp936 encoder — meta-skills capture stdout as bytes and decode
-    # explicitly upstream.
-    sys.stdout.buffer.write(text.encode("utf-8"))
+    _write_stdout(text)
     return 0
 
 

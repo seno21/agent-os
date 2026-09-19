@@ -322,3 +322,16 @@ def test_rwa_lookup_result_echoes_the_query_as_utf8(monkeypatch: pytest.MonkeyPa
     with CodePageStdout() as code_page_stdout:
         assert rwa_lookup.main() == 0
     assert code_page_stdout.payload()["query"] == NON_ASCII
+
+
+def test_text_file_read_emits_utf8_on_a_code_page_console(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text_file_read = _load("text-file-read/scripts/read.py", "text_file_read")
+    sample_file = tmp_path / "sample.txt"
+    sample_file.write_text(NON_ASCII, encoding="utf-8")
+    _argv(monkeypatch, "read.py", "--input", str(sample_file))
+
+    with CodePageStdout() as code_page_stdout:
+        assert text_file_read.main() == 0
+    assert code_page_stdout.text() == NON_ASCII
